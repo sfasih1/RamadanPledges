@@ -159,6 +159,13 @@
           </div>
         </div>
 
+        <div id="duration-wrapper" style="display: none;">
+          <label for="duration">Payment Duration</label>
+          <select id="duration" name="duration">
+            <!-- Options populated by JavaScript -->
+          </select>
+        </div>
+
         <div class="total-amount" id="total-display">Total: $1,000.00</div>
 
         <button type="submit">Proceed to Checkout</button>
@@ -170,15 +177,46 @@
       const totalDisplay = document.getElementById('total-display');
       const form = document.getElementById('pledge-form');
       const unitsError = document.getElementById('units-error');
+      const frequencySelect = document.getElementById('frequency');
+      const durationSelect = document.getElementById('duration');
+      const durationWrapper = document.getElementById('duration-wrapper');
+      const currencySelect = document.getElementById('currency');
 
       const UNIT_PRICE = 1000;
 
-      // Update total when units change
-      unitsInput.addEventListener('change', updateTotal);
-      unitsInput.addEventListener('input', updateTotal);
+      // Populate duration options based on frequency
+      function populateDurationOptions() {
+        const frequency = frequencySelect.value;
+        durationSelect.innerHTML = '';
 
+        if (frequency === 'weekly') {
+          for (let i = 1; i <= 26; i++) {
+            const weeks = i;
+            const months = (weeks / 4.33).toFixed(1);
+            const option = document.createElement('option');
+            option.value = i;
+            option.text = `${i} week${i > 1 ? 's' : ''} (~${months} months)`;
+            durationSelect.appendChild(option);
+          }
+          durationWrapper.style.display = 'block';
+        } else if (frequency === 'monthly') {
+          for (let i = 1; i <= 6; i++) {
+            const option = document.createElement('option');
+            option.value = i;
+            option.text = `${i} month${i > 1 ? 's' : ''}`;
+            durationSelect.appendChild(option);
+          }
+          durationWrapper.style.display = 'block';
+        } else {
+          durationWrapper.style.display = 'none';
+        }
+      }
+
+      // Update total when units, frequency, duration, or currency change
       function updateTotal() {
         const units = parseInt(unitsInput.value) || 0;
+        const frequency = frequencySelect.value;
+        const duration = parseInt(durationSelect.value) || 1;
         
         if (units < 1 || units > 80) {
           unitsError.textContent = 'Units must be between 1 and 80';
@@ -186,12 +224,31 @@
         }
         unitsError.textContent = '';
         
-        const total = units * UNIT_PRICE;
-        const currency = document.getElementById('currency').value.toUpperCase();
-        totalDisplay.textContent = `Total: ${currency} ${total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        let baseTotal = units * UNIT_PRICE;
+        let displayTotal = baseTotal;
+        let totalText = '';
+        
+        if (frequency === 'once') {
+          totalText = `Total: ${currencySelect.value.toUpperCase()} ${baseTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        } else if (frequency === 'weekly') {
+          displayTotal = baseTotal * duration;
+          totalText = `Total: ${currencySelect.value.toUpperCase()} ${baseTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} x ${duration} weeks = ${currencySelect.value.toUpperCase()} ${displayTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        } else if (frequency === 'monthly') {
+          displayTotal = baseTotal * duration;
+          totalText = `Total: ${currencySelect.value.toUpperCase()} ${baseTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} x ${duration} months = ${currencySelect.value.toUpperCase()} ${displayTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        }
+        
+        totalDisplay.textContent = totalText;
       }
 
-      document.getElementById('currency').addEventListener('change', updateTotal);
+      unitsInput.addEventListener('change', updateTotal);
+      unitsInput.addEventListener('input', updateTotal);
+      frequencySelect.addEventListener('change', () => {
+        populateDurationOptions();
+        updateTotal();
+      });
+      durationSelect.addEventListener('change', updateTotal);
+      currencySelect.addEventListener('change', updateTotal);
 
       form.addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -206,10 +263,14 @@
         button.disabled = true;
         button.textContent = 'Processing...';
 
+        const frequency = frequencySelect.value;
+        const duration = frequency !== 'once' ? parseInt(durationSelect.value) : 1;
+
         const payload = {
           units: units,
-          frequency: document.getElementById('frequency').value,
-          currency: document.getElementById('currency').value,
+          frequency: frequency,
+          duration: duration,
+          currency: currencySelect.value,
           donor_name: document.getElementById('donor-name').value || 'Anonymous',
           donor_email: document.getElementById('donor-email').value
         };
@@ -231,6 +292,7 @@
       });
 
       // Initialize display
+      populateDurationOptions();
       updateTotal();
     </script>
   </body>

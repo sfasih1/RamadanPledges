@@ -1,4 +1,4 @@
-import os, math
+import os, math, logging
 from flask import Flask, request, jsonify, send_from_directory
 from dotenv import load_dotenv
 import stripe
@@ -6,14 +6,31 @@ import stripe
 # Load environment variables
 load_dotenv()
 
+# Setup logging for production
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
 # === REQUIRED: Your live/test secret key must be set in .env as STRIPE_SECRET_KEY ===
-stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
+stripe_key = os.getenv("STRIPE_SECRET_KEY")
+if not stripe_key:
+    logger.error("STRIPE_SECRET_KEY not set in environment variables!")
+    raise ValueError("STRIPE_SECRET_KEY environment variable is required")
+
+stripe.api_key = stripe_key
 
 app = Flask(__name__, static_folder="static", static_url_path="/static")
 
+# Production mode
+PROD_MODE = os.getenv("FLASK_ENV") == "production"
+app.config['DEBUG'] = not PROD_MODE
+
 # Default redirect URLs (can be overridden via env)
-SUCCESS_URL = os.getenv("SUCCESS_URL", "http://localhost:4242/thank-you")
-CANCEL_URL  = os.getenv("CANCEL_URL",  "http://localhost:4242/error")
+BASE_URL = os.getenv("BASE_URL", "http://localhost:4242")
+SUCCESS_URL = os.getenv("SUCCESS_URL", f"{BASE_URL}/thank-you")
+CANCEL_URL  = os.getenv("CANCEL_URL",  f"{BASE_URL}/error")
 
 # Ramadan Pledges Configuration
 TOTAL_UNITS = 80
@@ -38,6 +55,7 @@ def create_checkout_session():
         units = int(data.get("units", 1))
         currency = (data.get("currency") or "usd").lower()
         frequency = (data.get("frequency") or "once").lower()  # once | weekly | monthly
+        duration = int(data.get("duration", 1))  # weeks or months
         donor_name = data.get("donor_name", "Anonymous")
         donor_email = data.get("donor_email", "")
 
@@ -45,8 +63,22 @@ def create_checkout_session():
         if units < MIN_UNITS or units > MAX_UNITS:
             return jsonify({"error": f"Units must be between {MIN_UNITS} and {MAX_UNITS}."}), 400
 
-        # Calculate total amount
-        total_amount = units * UNIT_PRICE
+        # Validate duration
+        if frequency == "weekly" and (duration < 1 or duration > 26):
+            return jsonify({"error": "Duration must be between 1 and 26 weeks."}), 400
+        if frequency == "monthly" and (duration < 1 or duration > 6):
+            return jsonify({"error": "Duration must be between 1 and 6 months."}), 400
+
+        # Calculate per-installment amount
+        per_installment_amount = units * UNIT_PRICE
+        
+        # For one-time, charge the full amount based on duration if specified
+        if frequency == "once":
+            total_amount = per_installment_amount * duration
+        else:
+            # For recurring, charge per-installment per period
+            total_amount = per_installment_amount
+
         unit_amount = to_unit_amount(total_amount, currency)
 
         # Guardrails
@@ -76,7 +108,8 @@ def create_checkout_session():
             "metadata": {
                 "units": str(units),
                 "donor_name": donor_name,
-                "frequency": frequency
+                "frequency": frequency,
+                "duration": str(duration)
             }
         }
 
@@ -111,13 +144,14 @@ def webhook():
         metadata = session.get("metadata", {})
         # One-time: session["payment_intent"]
         # Recurring: session["subscription"]
+        logger.info(f"Pledge completed: {metadata.get('donor_name')} for {metadata.get('units')} units | Frequency: {metadata.get('frequency')} | Duration: {metadata.get('duration')} | Session: {session['id']}")
         # TODO: record pledge; send thank-you email; update CRM
-        print(f"✓ Pledge completed: {metadata.get('donor_name')} for {metadata.get('units')} units")
     
     elif event["type"] == "invoice.paid":
         invoice = event["data"]["object"]
         # Recurring pledge payment received
-        print(f"✓ Recurring payment received for subscription {invoice.get('subscription')}")
+        logger.info(f"Recurring payment received: {invoice.get('id')} | Subscription: {invoice.get('subscription')}")
+        # TODO: record recurring payment
 
     return "", 200
 
@@ -134,4 +168,5 @@ def error():
     return send_from_directory("static", "error.html")
 
 if __name__ == "__main__":
-    app.run(port=4242, debug=True)
+    port = int(os.getenv("PORT", 4242))
+    app.run(port=port, debug=not PROD_MODE)
