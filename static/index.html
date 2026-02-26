@@ -166,6 +166,23 @@
           </select>
         </div>
 
+        <label for="includes-zakat">Does your donation include zakat?</label>
+        <select id="includes-zakat" name="includes_zakat">
+          <option value="no">No</option>
+          <option value="yes">Yes</option>
+        </select>
+
+        <div id="zakat-amount-wrapper" style="display: none;">
+          <label for="zakat-percentage">How much of your donation is zakat?</label>
+          <select id="zakat-percentage" name="zakat_percentage">
+            <option value="10">10%</option>
+            <option value="25">25%</option>
+            <option value="50">50%</option>
+            <option value="75">75%</option>
+            <option value="100">100%</option>
+          </select>
+        </div>
+
         <div class="total-amount" id="total-display">Total: $1,000.00</div>
 
         <button type="submit">Proceed to Checkout</button>
@@ -181,8 +198,20 @@
       const durationSelect = document.getElementById('duration');
       const durationWrapper = document.getElementById('duration-wrapper');
       const currencySelect = document.getElementById('currency');
+      const includesZakatSelect = document.getElementById('includes-zakat');
+      const zakatAmountWrapper = document.getElementById('zakat-amount-wrapper');
+      const zakatPercentageSelect = document.getElementById('zakat-percentage');
 
       const UNIT_PRICE = 1000;
+
+      // Toggle zakat amount dropdown based on zakat selection
+      function toggleZakatAmount() {
+        if (includesZakatSelect.value === 'yes') {
+          zakatAmountWrapper.style.display = 'block';
+        } else {
+          zakatAmountWrapper.style.display = 'none';
+        }
+      }
 
       // Populate duration options based on frequency
       function populateDurationOptions() {
@@ -249,6 +278,7 @@
       });
       durationSelect.addEventListener('change', updateTotal);
       currencySelect.addEventListener('change', updateTotal);
+      includesZakatSelect.addEventListener('change', toggleZakatAmount);
 
       form.addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -265,6 +295,8 @@
 
         const frequency = frequencySelect.value;
         const duration = frequency !== 'once' ? parseInt(durationSelect.value) : 1;
+        const includesZakat = includesZakatSelect.value === 'yes';
+        const zakatPercentage = includesZakat ? parseInt(zakatPercentageSelect.value) : 0;
 
         const payload = {
           units: units,
@@ -272,7 +304,9 @@
           duration: duration,
           currency: currencySelect.value,
           donor_name: document.getElementById('donor-name').value || 'Anonymous',
-          donor_email: document.getElementById('donor-email').value
+          donor_email: document.getElementById('donor-email').value,
+          includes_zakat: includesZakat,
+          zakat_percentage: zakatPercentage
         };
 
         try {
@@ -293,6 +327,7 @@
 
       // Initialize display
       populateDurationOptions();
+      toggleZakatAmount();
       updateTotal();
     </script>
   </body>

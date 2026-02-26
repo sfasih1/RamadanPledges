@@ -58,6 +58,8 @@ def create_checkout_session():
         duration = int(data.get("duration", 1))  # weeks or months
         donor_name = data.get("donor_name", "Anonymous")
         donor_email = data.get("donor_email", "")
+        includes_zakat = data.get("includes_zakat", False)
+        zakat_percentage = int(data.get("zakat_percentage", 0))
 
         # Validate units
         if units < MIN_UNITS or units > MAX_UNITS:
@@ -99,6 +101,11 @@ def create_checkout_session():
                 "interval": "week" if frequency == "weekly" else "month"
             }
 
+        # Calculate zakat amount if applicable
+        zakat_amount = 0
+        if includes_zakat and zakat_percentage > 0:
+            zakat_amount = (total_amount * zakat_percentage) / 100
+
         # Build session parameters
         session_params = {
             "mode": "subscription" if is_recurring else "payment",
@@ -109,7 +116,10 @@ def create_checkout_session():
                 "units": str(units),
                 "donor_name": donor_name,
                 "frequency": frequency,
-                "duration": str(duration)
+                "duration": str(duration),
+                "includes_zakat": str(includes_zakat),
+                "zakat_percentage": str(zakat_percentage),
+                "zakat_amount": str(zakat_amount)
             }
         }
 
@@ -144,7 +154,10 @@ def webhook():
         metadata = session.get("metadata", {})
         # One-time: session["payment_intent"]
         # Recurring: session["subscription"]
-        logger.info(f"Pledge completed: {metadata.get('donor_name')} for {metadata.get('units')} units | Frequency: {metadata.get('frequency')} | Duration: {metadata.get('duration')} | Session: {session['id']}")
+        zakat_info = ""
+        if metadata.get('includes_zakat') == 'True':
+            zakat_info = f" | Zakat: {metadata.get('zakat_percentage')}% (${metadata.get('zakat_amount')})"
+        logger.info(f"Pledge completed: {metadata.get('donor_name')} for {metadata.get('units')} units | Frequency: {metadata.get('frequency')} | Duration: {metadata.get('duration')}{zakat_info} | Session: {session['id']}")
         # TODO: record pledge; send thank-you email; update CRM
     
     elif event["type"] == "invoice.paid":
