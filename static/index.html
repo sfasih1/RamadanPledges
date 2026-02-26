@@ -177,6 +177,17 @@
           <input id="zakat-amount" name="zakat_amount" type="number" min="0" step="0.01" placeholder="Enter zakat amount" />
         </div>
 
+        <label for="is-dedicated">Is this donation dedicated to any loved ones?</label>
+        <select id="is-dedicated" name="is_dedicated">
+          <option value="no">No</option>
+          <option value="yes">Yes</option>
+        </select>
+
+        <div id="dedication-names-wrapper" style="display: none;">
+          <label for="dedication-names">Names of loved ones</label>
+          <input id="dedication-names" name="dedication_names" type="text" placeholder="Enter names (e.g., John Doe, Jane Smith)" />
+        </div>
+
         <div class="total-amount" id="total-display">Total: $1,000.00</div>
 
         <button type="submit">Proceed to Checkout</button>
@@ -195,6 +206,9 @@
       const includesZakatSelect = document.getElementById('includes-zakat');
       const zakatAmountWrapper = document.getElementById('zakat-amount-wrapper');
       const zakatAmountInput = document.getElementById('zakat-amount');
+      const isDedicatedSelect = document.getElementById('is-dedicated');
+      const dedicationNamesWrapper = document.getElementById('dedication-names-wrapper');
+      const dedicationNamesInput = document.getElementById('dedication-names');
 
       const UNIT_PRICE = 1000;
 
@@ -204,6 +218,15 @@
           zakatAmountWrapper.style.display = 'block';
         } else {
           zakatAmountWrapper.style.display = 'none';
+        }
+      }
+
+      // Toggle dedication names input based on dedication selection
+      function toggleDedicationNames() {
+        if (isDedicatedSelect.value === 'yes') {
+          dedicationNamesWrapper.style.display = 'block';
+        } else {
+          dedicationNamesWrapper.style.display = 'none';
         }
       }
 
@@ -273,6 +296,7 @@
       durationSelect.addEventListener('change', updateTotal);
       currencySelect.addEventListener('change', updateTotal);
       includesZakatSelect.addEventListener('change', toggleZakatAmount);
+      isDedicatedSelect.addEventListener('change', toggleDedicationNames);
 
       form.addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -291,6 +315,8 @@
         const duration = frequency !== 'once' ? parseInt(durationSelect.value) : 1;
         const includesZakat = includesZakatSelect.value === 'yes';
         const zakatAmount = includesZakat ? parseFloat(zakatAmountInput.value) || 0 : 0;
+        const isDedicated = isDedicatedSelect.value === 'yes';
+        const dedicationNames = isDedicated ? dedicationNamesInput.value : '';
 
         const payload = {
           units: units,
@@ -300,7 +326,9 @@
           donor_name: document.getElementById('donor-name').value || 'Anonymous',
           donor_email: document.getElementById('donor-email').value,
           includes_zakat: includesZakat,
-          zakat_amount: zakatAmount
+          zakat_amount: zakatAmount,
+          is_dedicated: isDedicated,
+          dedication_names: dedicationNames
         };
 
         try {
@@ -322,6 +350,7 @@
       // Initialize display
       populateDurationOptions();
       toggleZakatAmount();
+      toggleDedicationNames();
       updateTotal();
     </script>
   </body>

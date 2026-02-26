@@ -60,6 +60,8 @@ def create_checkout_session():
         donor_email = data.get("donor_email", "")
         includes_zakat = data.get("includes_zakat", False)
         zakat_amount = float(data.get("zakat_amount", 0))
+        is_dedicated = data.get("is_dedicated", False)
+        dedication_names = data.get("dedication_names", "")
 
         # Validate units
         if units < MIN_UNITS or units > MAX_UNITS:
@@ -113,7 +115,9 @@ def create_checkout_session():
                 "frequency": frequency,
                 "duration": str(duration),
                 "includes_zakat": str(includes_zakat),
-                "zakat_amount": str(zakat_amount)
+                "zakat_amount": str(zakat_amount),
+                "is_dedicated": str(is_dedicated),
+                "dedication_names": dedication_names
             }
         }
 
@@ -151,7 +155,10 @@ def webhook():
         zakat_info = ""
         if metadata.get('includes_zakat') == 'True':
             zakat_info = f" | Zakat Amount: ${metadata.get('zakat_amount')}"
-        logger.info(f"Pledge completed: {metadata.get('donor_name')} for {metadata.get('units')} units | Frequency: {metadata.get('frequency')} | Duration: {metadata.get('duration')}{zakat_info} | Session: {session['id']}")
+        dedication_info = ""
+        if metadata.get('is_dedicated') == 'True' and metadata.get('dedication_names'):
+            dedication_info = f" | Dedicated to: {metadata.get('dedication_names')}"
+        logger.info(f"Pledge completed: {metadata.get('donor_name')} for {metadata.get('units')} units | Frequency: {metadata.get('frequency')} | Duration: {metadata.get('duration')}{zakat_info}{dedication_info} | Session: {session['id']}")
         # TODO: record pledge; send thank-you email; update CRM
     
     elif event["type"] == "invoice.paid":
