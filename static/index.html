@@ -173,14 +173,8 @@
         </select>
 
         <div id="zakat-amount-wrapper" style="display: none;">
-          <label for="zakat-percentage">How much of your donation is zakat?</label>
-          <select id="zakat-percentage" name="zakat_percentage">
-            <option value="10">10%</option>
-            <option value="25">25%</option>
-            <option value="50">50%</option>
-            <option value="75">75%</option>
-            <option value="100">100%</option>
-          </select>
+          <label for="zakat-amount">How much of your donation is zakat? (in dollars)</label>
+          <input id="zakat-amount" name="zakat_amount" type="number" min="0" step="0.01" placeholder="Enter zakat amount" />
         </div>
 
         <div class="total-amount" id="total-display">Total: $1,000.00</div>
@@ -200,7 +194,7 @@
       const currencySelect = document.getElementById('currency');
       const includesZakatSelect = document.getElementById('includes-zakat');
       const zakatAmountWrapper = document.getElementById('zakat-amount-wrapper');
-      const zakatPercentageSelect = document.getElementById('zakat-percentage');
+      const zakatAmountInput = document.getElementById('zakat-amount');
 
       const UNIT_PRICE = 1000;
 
@@ -296,7 +290,7 @@
         const frequency = frequencySelect.value;
         const duration = frequency !== 'once' ? parseInt(durationSelect.value) : 1;
         const includesZakat = includesZakatSelect.value === 'yes';
-        const zakatPercentage = includesZakat ? parseInt(zakatPercentageSelect.value) : 0;
+        const zakatAmount = includesZakat ? parseFloat(zakatAmountInput.value) || 0 : 0;
 
         const payload = {
           units: units,
@@ -306,7 +300,7 @@
           donor_name: document.getElementById('donor-name').value || 'Anonymous',
           donor_email: document.getElementById('donor-email').value,
           includes_zakat: includesZakat,
-          zakat_percentage: zakatPercentage
+          zakat_amount: zakatAmount
         };
 
         try {
