@@ -52,9 +52,10 @@ def to_unit_amount(amount: float, currency: str) -> int:
 def create_checkout_session():
     try:
         data = request.get_json(force=True)
-        units = int(data.get("units", 1))
+        organization = (data.get("organization") or "aminah").lower()
+        donation_type = (data.get("donation_type") or "units").lower()
         currency = (data.get("currency") or "usd").lower()
-        frequency = (data.get("frequency") or "once").lower()  # once | weekly | monthly
+        frequency = (data.get("frequency") or "monthly").lower()  # once | weekly | monthly
         duration = int(data.get("duration", 1))  # weeks or months
         donor_name = data.get("donor_name", "Anonymous")
         donor_email = data.get("donor_email", "")
@@ -63,9 +64,21 @@ def create_checkout_session():
         is_dedicated = data.get("is_dedicated", False)
         dedication_names = data.get("dedication_names", "")
 
-        # Validate units
-        if units < MIN_UNITS or units > MAX_UNITS:
-            return jsonify({"error": f"Units must be between {MIN_UNITS} and {MAX_UNITS}."}), 400
+        # Determine amount based on donation type
+        if donation_type == "units":
+            units = int(data.get("units", 1))
+            # Validate units
+            if units < MIN_UNITS or units > MAX_UNITS:
+                return jsonify({"error": f"Units must be between {MIN_UNITS} and {MAX_UNITS}."}), 400
+            per_installment_amount = units * UNIT_PRICE
+            product_name = f"Ramadan Pledge - {units} Unit(s)"
+        else:  # custom
+            units = None
+            custom_amount = float(data.get("custom_amount", 0))
+            if custom_amount <= 0:
+                return jsonify({"error": "Custom amount must be greater than 0."}), 400
+            per_installment_amount = custom_amount
+            product_name = "Ramadan Pledge - Custom Donation"
 
         # Validate duration
         if frequency == "weekly" and (duration < 1 or duration > 26):
@@ -73,9 +86,6 @@ def create_checkout_session():
         if frequency == "monthly" and (duration < 1 or duration > 6):
             return jsonify({"error": "Duration must be between 1 and 6 months."}), 400
 
-        # Calculate per-installment amount
-        per_installment_amount = units * UNIT_PRICE
-        
         # For one-time, charge the full amount based on duration if specified
         if frequency == "once":
             total_amount = per_installment_amount * duration
@@ -95,7 +105,7 @@ def create_checkout_session():
         price_data = {
             "currency": currency,
             "unit_amount": unit_amount,
-            "product_data": {"name": f"Ramadan Pledge - {units} Unit(s)"}
+            "product_data": {"name": product_name}
         }
         
         if is_recurring:
@@ -103,22 +113,30 @@ def create_checkout_session():
                 "interval": "week" if frequency == "weekly" else "month"
             }
 
+        # Build metadata
+        metadata = {
+            "organization": organization,
+            "donation_type": donation_type,
+            "donor_name": donor_name,
+            "frequency": frequency,
+            "duration": str(duration),
+            "includes_zakat": str(includes_zakat),
+            "zakat_amount": str(zakat_amount),
+            "is_dedicated": str(is_dedicated),
+            "dedication_names": dedication_names
+        }
+        
+        # Include units only if donation type is units
+        if donation_type == "units":
+            metadata["units"] = str(units)
+
         # Build session parameters
         session_params = {
             "mode": "subscription" if is_recurring else "payment",
             "line_items": [{"price_data": price_data, "quantity": 1}],
             "success_url": SUCCESS_URL,
             "cancel_url": CANCEL_URL,
-            "metadata": {
-                "units": str(units),
-                "donor_name": donor_name,
-                "frequency": frequency,
-                "duration": str(duration),
-                "includes_zakat": str(includes_zakat),
-                "zakat_amount": str(zakat_amount),
-                "is_dedicated": str(is_dedicated),
-                "dedication_names": dedication_names
-            }
+            "metadata": metadata
         }
 
         # Add customer email if provided
@@ -152,13 +170,15 @@ def webhook():
         metadata = session.get("metadata", {})
         # One-time: session["payment_intent"]
         # Recurring: session["subscription"]
+        org_name = "Aminah Islamic Center" if metadata.get('organization') == 'aminah' else "Muslim Dreamers Learning Center"
+        donation_info = f"{metadata.get('units')} units" if metadata.get('units') else "custom donation"
         zakat_info = ""
         if metadata.get('includes_zakat') == 'True':
             zakat_info = f" | Zakat Amount: ${metadata.get('zakat_amount')}"
         dedication_info = ""
         if metadata.get('is_dedicated') == 'True' and metadata.get('dedication_names'):
             dedication_info = f" | Dedicated to: {metadata.get('dedication_names')}"
-        logger.info(f"Pledge completed: {metadata.get('donor_name')} for {metadata.get('units')} units | Frequency: {metadata.get('frequency')} | Duration: {metadata.get('duration')}{zakat_info}{dedication_info} | Session: {session['id']}")
+        logger.info(f"Pledge completed: {metadata.get('donor_name')} for {donation_info} to {org_name} | Frequency: {metadata.get('frequency')} | Duration: {metadata.get('duration')}{zakat_info}{dedication_info} | Session: {session['id']}")
         # TODO: record pledge; send thank-you email; update CRM
     
     elif event["type"] == "invoice.paid":

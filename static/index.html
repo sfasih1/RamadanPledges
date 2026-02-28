@@ -114,24 +114,50 @@
       <p class="subtitle">Make Your Blessed Donation</p>
       
       <div class="info-box">
-        <strong>Available Units:</strong> 80 out of 80 remain
+        <p><strong>For one-time donations please visit this link:</strong> <a href="#" id="one-time-link" style="color: #667eea; text-decoration: underline;">Coming soon</a></p>
+      </div>
+
+      <div class="info-box">
+        <p><strong>Tax Deductible:</strong> All donations are tax-deductible. Please contact us on WhatsApp with your donation receipt/confirmation to receive an official tax receipt.</p>
       </div>
 
       <div class="unit-info">
         <div class="unit-item">
-          <strong>$1,000</strong>
-          <small>per unit</small>
+          <strong>Aminah Islamic Center</strong>
+          <div style="font-size: 1.5rem; color: #667eea; margin: 0.5rem 0;" id="aminah-counter">40 units</div>
+          <small>Units Available</small>
         </div>
         <div class="unit-item">
-          <strong>80</strong>
-          <small>total units</small>
+          <strong>Muslim Dreamers Learning Center</strong>
+          <div style="font-size: 1.5rem; color: #667eea; margin: 0.5rem 0;" id="dreamers-counter">40 units</div>
+          <small>Units Available</small>
         </div>
       </div>
 
       <form id="pledge-form">
-        <label for="units">Number of Units</label>
-        <input id="units" name="units" type="number" min="1" max="80" value="1" required/>
-        <span class="error" id="units-error"></span>
+        <label for="organization">Select Organization</label>
+        <select id="organization" name="organization" required>
+          <option value="aminah">Aminah Islamic Center</option>
+          <option value="dreamers">Muslim Dreamers Learning Center</option>
+        </select>
+
+        <label for="donation-type">Donation Type</label>
+        <select id="donation-type" name="donation_type">
+          <option value="units">Fixed Unit ($1,000 per unit)</option>
+          <option value="custom">Custom Amount</option>
+        </select>
+
+        <div id="units-wrapper">
+          <label for="units">Number of Units</label>
+          <input id="units" name="units" type="number" min="1" max="80" value="1"/>
+          <span class="error" id="units-error"></span>
+        </div>
+
+        <div id="custom-amount-wrapper" style="display: none;">
+          <label for="custom-amount">Custom Donation Amount</label>
+          <input id="custom-amount" name="custom_amount" type="number" min="1" step="0.01" placeholder="Enter amount in dollars"/>
+          <span class="error" id="custom-amount-error"></span>
+        </div>
 
         <label for="donor-name">Your Name</label>
         <input id="donor-name" name="donor_name" type="text" placeholder="Enter your name" />
@@ -143,9 +169,9 @@
           <div>
             <label for="frequency">Payment Frequency</label>
             <select id="frequency" name="frequency">
-              <option value="once">Pay All at Once</option>
+              <option value="monthly" selected>Pay Monthly</option>
               <option value="weekly">Pay Weekly</option>
-              <option value="monthly">Pay Monthly</option>
+              <option value="once">Pay All at Once</option>
             </select>
           </div>
           <div>
@@ -195,10 +221,17 @@
     </div>
 
     <script>
+      // DOM elements
+      const organizationSelect = document.getElementById('organization');
+      const donationTypeSelect = document.getElementById('donation-type');
       const unitsInput = document.getElementById('units');
+      const customAmountInput = document.getElementById('custom-amount');
+      const unitsWrapper = document.getElementById('units-wrapper');
+      const customAmountWrapper = document.getElementById('custom-amount-wrapper');
       const totalDisplay = document.getElementById('total-display');
       const form = document.getElementById('pledge-form');
       const unitsError = document.getElementById('units-error');
+      const customAmountError = document.getElementById('custom-amount-error');
       const frequencySelect = document.getElementById('frequency');
       const durationSelect = document.getElementById('duration');
       const durationWrapper = document.getElementById('duration-wrapper');
@@ -211,6 +244,18 @@
       const dedicationNamesInput = document.getElementById('dedication-names');
 
       const UNIT_PRICE = 1000;
+
+      // Toggle between units and custom amount
+      function toggleDonationType() {
+        if (donationTypeSelect.value === 'units') {
+          unitsWrapper.style.display = 'block';
+          customAmountWrapper.style.display = 'none';
+        } else {
+          unitsWrapper.style.display = 'none';
+          customAmountWrapper.style.display = 'block';
+        }
+        updateTotal();
+      }
 
       // Toggle zakat amount dropdown based on zakat selection
       function toggleZakatAmount() {
@@ -258,20 +303,32 @@
         }
       }
 
-      // Update total when units, frequency, duration, or currency change
+      // Update total when inputs change
       function updateTotal() {
-        const units = parseInt(unitsInput.value) || 0;
+        const donationType = donationTypeSelect.value;
         const frequency = frequencySelect.value;
         const duration = parseInt(durationSelect.value) || 1;
-        
-        if (units < 1 || units > 80) {
-          unitsError.textContent = 'Units must be between 1 and 80';
-          return;
-        }
-        unitsError.textContent = '';
-        
-        const baseTotal = units * UNIT_PRICE;
         const currencyCode = currencySelect.value.toUpperCase();
+        let baseTotal = 0;
+
+        if (donationType === 'units') {
+          const units = parseInt(unitsInput.value) || 0;
+          if (units < 1 || units > 80) {
+            unitsError.textContent = 'Units must be between 1 and 80';
+            return;
+          }
+          unitsError.textContent = '';
+          baseTotal = units * UNIT_PRICE;
+        } else {
+          const customAmount = parseFloat(customAmountInput.value) || 0;
+          if (customAmount < 1) {
+            customAmountError.textContent = 'Amount must be greater than 0';
+            return;
+          }
+          customAmountError.textContent = '';
+          baseTotal = customAmount;
+        }
+
         let displayText = '';
         
         if (frequency === 'once') {
@@ -287,8 +344,12 @@
         totalDisplay.textContent = displayText;
       }
 
+      // Event listeners
+      donationTypeSelect.addEventListener('change', toggleDonationType);
       unitsInput.addEventListener('change', updateTotal);
       unitsInput.addEventListener('input', updateTotal);
+      customAmountInput.addEventListener('change', updateTotal);
+      customAmountInput.addEventListener('input', updateTotal);
       frequencySelect.addEventListener('change', () => {
         populateDurationOptions();
         updateTotal();
@@ -301,16 +362,8 @@
       form.addEventListener('submit', async (e) => {
         e.preventDefault();
         
-        const units = parseInt(unitsInput.value);
-        if (units < 1 || units > 80) {
-          alert('Units must be between 1 and 80');
-          return;
-        }
-
-        const button = e.target.querySelector('button');
-        button.disabled = true;
-        button.textContent = 'Processing...';
-
+        const donationType = donationTypeSelect.value;
+        const organization = organizationSelect.value;
         const frequency = frequencySelect.value;
         const duration = frequency !== 'once' ? parseInt(durationSelect.value) : 1;
         const includesZakat = includesZakatSelect.value === 'yes';
@@ -318,8 +371,32 @@
         const isDedicated = isDedicatedSelect.value === 'yes';
         const dedicationNames = isDedicated ? dedicationNamesInput.value : '';
 
+        let units = null;
+        let customAmount = null;
+
+        if (donationType === 'units') {
+          units = parseInt(unitsInput.value);
+          if (units < 1 || units > 80) {
+            alert('Units must be between 1 and 80');
+            return;
+          }
+        } else {
+          customAmount = parseFloat(customAmountInput.value);
+          if (customAmount < 1) {
+            alert('Amount must be greater than 0');
+            return;
+          }
+        }
+
+        const button = e.target.querySelector('button');
+        button.disabled = true;
+        button.textContent = 'Processing...';
+
         const payload = {
+          organization: organization,
+          donation_type: donationType,
           units: units,
+          custom_amount: customAmount,
           frequency: frequency,
           duration: duration,
           currency: currencySelect.value,
