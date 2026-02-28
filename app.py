@@ -170,7 +170,13 @@ def webhook():
         metadata = session.get("metadata", {})
         # One-time: session["payment_intent"]
         # Recurring: session["subscription"]
-        org_name = "Aminah Islamic Center" if metadata.get('organization') == 'aminah' else "Muslim Dreamers Learning Center"
+        org_value = metadata.get('organization', 'aminah')
+        if org_value == 'both':
+            org_name = "Both Organizations (Aminah Islamic Center & Muslim Dreamers Learning Center)"
+        elif org_value == 'dreamers':
+            org_name = "Muslim Dreamers Learning Center"
+        else:
+            org_name = "Aminah Islamic Center"
         donation_info = f"{metadata.get('units')} units" if metadata.get('units') else "custom donation"
         zakat_info = ""
         if metadata.get('includes_zakat') == 'True':
