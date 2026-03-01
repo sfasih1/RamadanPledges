@@ -246,16 +246,55 @@
 
       const UNIT_PRICE = 1000;
 
-      // Fetch and update remaining units display
+      // Fetch and update remaining units display for each organization
       async function loadRemainingUnits() {
         try {
-          const res = await fetch('/get-units');
-          const data = await res.json();
-          const remaining = data.remaining_units;
-          document.getElementById('aminah-counter').textContent = `${remaining} units`;
-          document.getElementById('dreamers-counter').textContent = `${remaining} units`;
+          // Fetch units for both organizations
+          const aminahRes = await fetch('/get-units?organization=aminah');
+          const aminahData = await aminahRes.json();
+          const aminahRemaining = aminahData.remaining_units;
+          
+          const dreamersRes = await fetch('/get-units?organization=dreamers');
+          const dreamersData = await dreamersRes.json();
+          const dreamersRemaining = dreamersData.remaining_units;
+          
+          // Update displays
+          document.getElementById('aminah-counter').textContent = `${aminahRemaining} units`;
+          document.getElementById('dreamers-counter').textContent = `${dreamersRemaining} units`;
+          
+          // Update max units input based on selected organization
+          updateMaxUnits();
         } catch (err) {
           console.error('Failed to load remaining units:', err);
+        }
+      }
+
+      // Update max units input based on selected organization
+      async function updateMaxUnits() {
+        const organization = organizationSelect.value;
+        let maxUnits = 80;
+        
+        try {
+          if (organization === 'both') {
+            // For "both", use the minimum of the two
+            const aminahRes = await fetch('/get-units?organization=aminah');
+            const aminahData = await aminahRes.json();
+            const aminahRemaining = aminahData.remaining_units;
+            
+            const dreamersRes = await fetch('/get-units?organization=dreamers');
+            const dreamersData = await dreamersRes.json();
+            const dreamersRemaining = dreamersData.remaining_units;
+            
+            maxUnits = Math.min(aminahRemaining, dreamersRemaining);
+          } else {
+            const res = await fetch(`/get-units?organization=${organization}`);
+            const data = await res.json();
+            maxUnits = data.remaining_units;
+          }
+          unitsInput.max = maxUnits;
+          unitsInput.value = Math.min(parseInt(unitsInput.value) || 1, maxUnits);
+        } catch (err) {
+          console.error('Failed to update max units:', err);
         }
       }
 
@@ -361,6 +400,7 @@
       }
 
       // Event listeners
+      organizationSelect.addEventListener('change', updateMaxUnits);
       donationTypeSelect.addEventListener('change', toggleDonationType);
       unitsInput.addEventListener('change', updateTotal);
       unitsInput.addEventListener('input', updateTotal);

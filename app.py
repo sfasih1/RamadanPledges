@@ -48,27 +48,43 @@ ZERO_DECIMAL_CURRENCIES = {"bif","clp","djf","gnf","jpy","kmf","krw","mga","pyg"
 def init_units():
     if not os.path.exists(UNITS_FILE):
         with open(UNITS_FILE, 'w') as f:
-            json.dump({"remaining_units": DEFAULT_UNITS}, f)
+            json.dump({
+                "aminah": DEFAULT_UNITS,
+                "dreamers": DEFAULT_UNITS,
+                "both": DEFAULT_UNITS
+            }, f)
 
-def get_remaining_units():
+def get_remaining_units(organization="aminah"):
+    """Get remaining units for a specific organization"""
     init_units()
     try:
         with open(UNITS_FILE, 'r') as f:
             data = json.load(f)
-            return data.get("remaining_units", DEFAULT_UNITS)
+            return data.get(organization, DEFAULT_UNITS)
     except:
         return DEFAULT_UNITS
 
-def decrement_units(units_to_decrement):
+def decrement_units(organization, units_to_decrement):
+    """Decrement units for a specific organization"""
     init_units()
     try:
         with open(UNITS_FILE, 'r') as f:
             data = json.load(f)
-        remaining = data.get("remaining_units", DEFAULT_UNITS)
-        remaining = max(0, remaining - units_to_decrement)
+        
+        # Handle "both" organization - decrement from both aminah and dreamers
+        if organization == "both":
+            for org in ["aminah", "dreamers"]:
+                remaining = data.get(org, DEFAULT_UNITS)
+                remaining = max(0, remaining - units_to_decrement)
+                data[org] = remaining
+        else:
+            remaining = data.get(organization, DEFAULT_UNITS)
+            remaining = max(0, remaining - units_to_decrement)
+            data[organization] = remaining
+        
         with open(UNITS_FILE, 'w') as f:
-            json.dump({"remaining_units": remaining}, f)
-        return remaining
+            json.dump(data, f)
+        return data
     except:
         return DEFAULT_UNITS
 
@@ -186,7 +202,7 @@ def create_checkout_session():
         
         # Decrement units immediately upon successful session creation (for unit-based pledges)
         if donation_type == "units" and units:
-            decrement_units(units)
+            decrement_units(organization, units)
         
         return jsonify({"url": session.url})
     except Exception as e:
@@ -194,8 +210,9 @@ def create_checkout_session():
 
 @app.get("/get-units")
 def get_units():
-    remaining = get_remaining_units()
-    return jsonify({"remaining_units": remaining})
+    organization = request.args.get("organization", "aminah").lower()
+    remaining = get_remaining_units(organization)
+    return jsonify({"organization": organization, "remaining_units": remaining})
 
 @app.post("/webhook")
 def webhook():
