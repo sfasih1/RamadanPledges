@@ -1,4 +1,4 @@
-import os, math, logging
+import os, math, logging, json
 from flask import Flask, request, jsonify, send_from_directory
 from dotenv import load_dotenv
 import stripe
@@ -38,7 +38,39 @@ UNIT_PRICE = 1000  # $1,000 per unit
 MIN_UNITS = 1
 MAX_UNITS = TOTAL_UNITS
 
+# Unit tracking file
+UNITS_FILE = "/tmp/units_data.json"  # Use /tmp for ephemeral filesystem compatibility
+DEFAULT_UNITS = 80
+
 ZERO_DECIMAL_CURRENCIES = {"bif","clp","djf","gnf","jpy","kmf","krw","mga","pyg","rwf","ugx","vnd","vuv","xaf","xof","xpf"}
+
+# Initialize units file if it doesn't exist
+def init_units():
+    if not os.path.exists(UNITS_FILE):
+        with open(UNITS_FILE, 'w') as f:
+            json.dump({"remaining_units": DEFAULT_UNITS}, f)
+
+def get_remaining_units():
+    init_units()
+    try:
+        with open(UNITS_FILE, 'r') as f:
+            data = json.load(f)
+            return data.get("remaining_units", DEFAULT_UNITS)
+    except:
+        return DEFAULT_UNITS
+
+def decrement_units(units_to_decrement):
+    init_units()
+    try:
+        with open(UNITS_FILE, 'r') as f:
+            data = json.load(f)
+        remaining = data.get("remaining_units", DEFAULT_UNITS)
+        remaining = max(0, remaining - units_to_decrement)
+        with open(UNITS_FILE, 'w') as f:
+            json.dump({"remaining_units": remaining}, f)
+        return remaining
+    except:
+        return DEFAULT_UNITS
 
 def to_unit_amount(amount: float, currency: str) -> int:
     a = float(amount)
@@ -86,14 +118,21 @@ def create_checkout_session():
         if frequency == "monthly" and (duration < 1 or duration > 6):
             return jsonify({"error": "Duration must be between 1 and 6 months."}), 400
 
-        # For one-time, charge the full amount based on duration if specified
+        # For recurring with duration > 1, this becomes a payment plan (divide amount by duration)
+        # For one-time, charge the full amount
         if frequency == "once":
             total_amount = per_installment_amount * duration
-        else:
-            # For recurring, charge per-installment per period
+            per_period_amount = total_amount  # charge it all at once
+        elif duration > 1:
+            # Payment plan: charge per_installment_amount total, split across duration periods
             total_amount = per_installment_amount
+            per_period_amount = total_amount / duration
+        else:
+            # True recurring: charge per_installment_amount every period
+            total_amount = per_installment_amount
+            per_period_amount = total_amount
 
-        unit_amount = to_unit_amount(total_amount, currency)
+        unit_amount = to_unit_amount(per_period_amount, currency)
 
         # Guardrails
         MIN = 100 if currency not in ZERO_DECIMAL_CURRENCIES else 1
@@ -144,9 +183,19 @@ def create_checkout_session():
             session_params["customer_email"] = donor_email
 
         session = stripe.checkout.Session.create(**session_params)
+        
+        # Decrement units immediately upon successful session creation (for unit-based pledges)
+        if donation_type == "units" and units:
+            decrement_units(units)
+        
         return jsonify({"url": session.url})
     except Exception as e:
         return jsonify({"error": str(e)}), 400
+
+@app.get("/get-units")
+def get_units():
+    remaining = get_remaining_units()
+    return jsonify({"remaining_units": remaining})
 
 @app.post("/webhook")
 def webhook():

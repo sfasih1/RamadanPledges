@@ -246,6 +246,19 @@
 
       const UNIT_PRICE = 1000;
 
+      // Fetch and update remaining units display
+      async function loadRemainingUnits() {
+        try {
+          const res = await fetch('/get-units');
+          const data = await res.json();
+          const remaining = data.remaining_units;
+          document.getElementById('aminah-counter').textContent = `${remaining} units`;
+          document.getElementById('dreamers-counter').textContent = `${remaining} units`;
+        } catch (err) {
+          console.error('Failed to load remaining units:', err);
+        }
+      }
+
       // Toggle between units and custom amount
       function toggleDonationType() {
         if (donationTypeSelect.value === 'units') {
@@ -288,6 +301,7 @@
             const option = document.createElement('option');
             option.value = i;
             option.text = `${i} week${i > 1 ? 's' : ''} (~${months} months)`;
+            if (i === 26) option.selected = true;  // Default to 26 weeks
             durationSelect.appendChild(option);
           }
           durationWrapper.style.display = 'block';
@@ -296,6 +310,7 @@
             const option = document.createElement('option');
             option.value = i;
             option.text = `${i} month${i > 1 ? 's' : ''}`;
+            if (i === 6) option.selected = true;  // Default to 6 months
             durationSelect.appendChild(option);
           }
           durationWrapper.style.display = 'block';
@@ -426,6 +441,7 @@
       });
 
       // Initialize display
+      loadRemainingUnits();
       populateDurationOptions();
       toggleZakatAmount();
       toggleDedicationNames();
