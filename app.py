@@ -51,7 +51,7 @@ def init_units():
             json.dump({
                 "aminah": DEFAULT_UNITS,
                 "dreamers": DEFAULT_UNITS,
-                "both": DEFAULT_UNITS
+                "both": 79.5
             }, f)
 
 def get_remaining_units(organization="aminah"):
