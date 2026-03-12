@@ -1,4 +1,5 @@
 import os, math, logging, json
+from datetime import datetime, timezone
 from flask import Flask, request, jsonify, send_from_directory
 from dotenv import load_dotenv
 import stripe
@@ -111,6 +112,7 @@ def create_checkout_session():
         zakat_amount = float(data.get("zakat_amount", 0))
         is_dedicated = data.get("is_dedicated", False)
         dedication_names = data.get("dedication_names", "")
+        start_date_str = data.get("start_date", "").strip()  # YYYY-MM-DD, optional
 
         # Determine amount based on donation type
         if donation_type == "units":
@@ -134,8 +136,10 @@ def create_checkout_session():
         if frequency == "monthly" and (duration < 1 or duration > 6):
             return jsonify({"error": "Duration must be between 1 and 6 months."}), 400
 
-        # For recurring with duration > 1, this becomes a payment plan (divide amount by duration)
-        # For one-time, charge the full amount
+    # For recurring with duration > 1, this becomes a payment plan (divide
+    # the pledge across the selected periods). A one-time pledge with a
+    # future start date will later be converted into a one-cycle
+    # subscription so Stripe can delay the single collection.
         if frequency == "once":
             total_amount = per_installment_amount * duration
             per_period_amount = total_amount  # charge it all at once
@@ -168,6 +172,30 @@ def create_checkout_session():
                 "interval": "week" if frequency == "weekly" else "month"
             }
 
+        # Resolve start date for recurring and scheduled one-time pledges.
+        start_timestamp = None
+        if start_date_str:
+            try:
+                start_dt = datetime.strptime(start_date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                today_utc = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+                if start_dt < today_utc:
+                    return jsonify({"error": "Start date cannot be in the past."}), 400
+                if start_dt > today_utc:
+                    start_timestamp = int(start_dt.timestamp())
+            except ValueError:
+                return jsonify({"error": "Invalid start_date format. Use YYYY-MM-DD."}), 400
+
+        scheduled_one_time = frequency == "once" and start_timestamp is not None
+
+        if is_recurring or scheduled_one_time:
+            interval = "week" if frequency == "weekly" else "month"
+            price_data["recurring"] = {
+                "interval": interval
+            }
+
+        if scheduled_one_time:
+            duration = 1
+
         # Build metadata
         metadata = {
             "organization": organization,
@@ -180,6 +208,8 @@ def create_checkout_session():
             "is_dedicated": str(is_dedicated),
             "dedication_names": dedication_names
         }
+        if start_timestamp:
+            metadata["start_date"] = start_date_str
         
         # Include units only if donation type is units
         if donation_type == "units":
@@ -187,12 +217,21 @@ def create_checkout_session():
 
         # Build session parameters
         session_params = {
-            "mode": "subscription" if is_recurring else "payment",
+            "mode": "subscription" if (is_recurring or scheduled_one_time) else "payment",
             "line_items": [{"price_data": price_data, "quantity": 1}],
             "success_url": SUCCESS_URL,
             "cancel_url": CANCEL_URL,
             "metadata": metadata
         }
+
+        # For recurring pledges, also attach metadata to the subscription so
+        # the webhook can read duration and cancel once fully collected.
+        # If a future start date was chosen, set trial_end to delay the first charge.
+        if is_recurring or scheduled_one_time:
+            subscription_data = {"metadata": metadata}
+            if start_timestamp:
+                subscription_data["trial_end"] = start_timestamp
+            session_params["subscription_data"] = subscription_data
 
         # Add customer email if provided
         if donor_email:
@@ -255,9 +294,34 @@ def webhook():
     
     elif event["type"] == "invoice.paid":
         invoice = event["data"]["object"]
-        # Recurring pledge payment received
-        logger.info(f"Recurring payment received: {invoice.get('id')} | Subscription: {invoice.get('subscription')}")
+        subscription_id = invoice.get("subscription")
+        logger.info(f"Recurring payment received: {invoice.get('id')} | Subscription: {subscription_id}")
         # TODO: record recurring payment
+
+        # Cancel the subscription once the full pledge has been collected.
+        if subscription_id:
+            try:
+                subscription = stripe.Subscription.retrieve(subscription_id)
+                sub_metadata = subscription.get("metadata", {})
+                duration = int(sub_metadata.get("duration", 0))
+                frequency = sub_metadata.get("frequency", "")
+
+                if duration > 0 and frequency in ("weekly", "monthly", "once"):
+                    # Count all paid invoices for this subscription (max duration is 26).
+                    # Exclude $0 trial-start invoices that Stripe generates when trial_end is used.
+                    paid_invoices = stripe.Invoice.list(
+                        subscription=subscription_id,
+                        status="paid",
+                        limit=50
+                    )
+                    paid_count = sum(1 for inv in paid_invoices.data if inv.get("amount_paid", 0) > 0)
+                    logger.info(f"Subscription {subscription_id}: {paid_count}/{duration} payment(s) collected")
+
+                    if paid_count >= duration:
+                        stripe.Subscription.cancel(subscription_id)
+                        logger.info(f"Subscription {subscription_id} cancelled — full pledge of {duration} payment(s) collected")
+            except Exception as e:
+                logger.error(f"Error checking/cancelling subscription {subscription_id}: {e}")
 
     return "", 200
 

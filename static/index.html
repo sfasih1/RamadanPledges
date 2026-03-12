@@ -193,6 +193,12 @@
           </select>
         </div>
 
+        <div id="start-date-wrapper" style="display: none;">
+          <label for="start-date">Start Date <small style="font-weight: normal; color: #888;">(optional — leave blank to start immediately)</small></label>
+          <input id="start-date" name="start_date" type="date" />
+          <span class="error" id="start-date-error"></span>
+        </div>
+
         <label for="includes-zakat">Does your donation include zakat?</label>
         <select id="includes-zakat" name="includes_zakat">
           <option value="no">No</option>
@@ -243,6 +249,9 @@
       const isDedicatedSelect = document.getElementById('is-dedicated');
       const dedicationNamesWrapper = document.getElementById('dedication-names-wrapper');
       const dedicationNamesInput = document.getElementById('dedication-names');
+      const startDateWrapper = document.getElementById('start-date-wrapper');
+      const startDateInput = document.getElementById('start-date');
+      const startDateError = document.getElementById('start-date-error');
 
       const UNIT_PRICE = 1000;
 
@@ -344,6 +353,7 @@
             durationSelect.appendChild(option);
           }
           durationWrapper.style.display = 'block';
+          startDateWrapper.style.display = 'block';
         } else if (frequency === 'monthly') {
           for (let i = 1; i <= 6; i++) {
             const option = document.createElement('option');
@@ -353,9 +363,19 @@
             durationSelect.appendChild(option);
           }
           durationWrapper.style.display = 'block';
+          startDateWrapper.style.display = 'block';
+        } else if (frequency === 'once') {
+          durationWrapper.style.display = 'none';
+          startDateWrapper.style.display = 'block';
         } else {
           durationWrapper.style.display = 'none';
+          startDateWrapper.style.display = 'none';
+          startDateInput.value = '';
         }
+
+        // Enforce minimum date of today whenever the field is visible
+        const today = new Date().toISOString().split('T')[0];
+        startDateInput.min = today;
       }
 
       // Update total when inputs change
@@ -448,6 +468,19 @@
         button.disabled = true;
         button.textContent = 'Processing...';
 
+        // Validate start date if provided
+        const startDateValue = startDateInput.value;
+        if (startDateValue) {
+          const today = new Date().toISOString().split('T')[0];
+          if (startDateValue < today) {
+            startDateError.textContent = 'Start date cannot be in the past.';
+            button.disabled = false;
+            button.textContent = 'Proceed to Checkout';
+            return;
+          }
+        }
+        startDateError.textContent = '';
+
         const payload = {
           organization: organization,
           donation_type: donationType,
@@ -461,7 +494,8 @@
           includes_zakat: includesZakat,
           zakat_amount: zakatAmount,
           is_dedicated: isDedicated,
-          dedication_names: dedicationNames
+          dedication_names: dedicationNames,
+          start_date: startDateValue || ''
         };
 
         try {
