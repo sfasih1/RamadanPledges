@@ -38,57 +38,107 @@ TOTAL_UNITS = 80
 UNIT_PRICE = 1000  # $1,000 per unit
 MIN_UNITS = 1
 MAX_UNITS = TOTAL_UNITS
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Unit tracking file
-UNITS_FILE = "/tmp/units_data.json"  # Use /tmp for ephemeral filesystem compatibility
-DEFAULT_UNITS = 80
+UNITS_FILE = os.path.join(BASE_DIR, "units_data.json")
+INITIAL_UNITS = {
+    "aminah": 10,
+    "dreamers": 78,
+}
 
 ZERO_DECIMAL_CURRENCIES = {"bif","clp","djf","gnf","jpy","kmf","krw","mga","pyg","rwf","ugx","vnd","vuv","xaf","xof","xpf"}
 MAX_START_DATE = datetime(2026, 4, 20, tzinfo=timezone.utc)
+
+def default_units_data():
+    return {
+        "remaining_units": INITIAL_UNITS.copy(),
+        "processed_sessions": []
+    }
 
 # Initialize units file if it doesn't exist
 def init_units():
     if not os.path.exists(UNITS_FILE):
         with open(UNITS_FILE, 'w') as f:
-            json.dump({
-                "aminah": DEFAULT_UNITS,
-                "dreamers": DEFAULT_UNITS,
-                "both": 79.5
-            }, f)
+            json.dump(default_units_data(), f)
+
+def load_units_data():
+    init_units()
+    try:
+        with open(UNITS_FILE, 'r') as f:
+            data = json.load(f)
+    except Exception:
+        data = default_units_data()
+        with open(UNITS_FILE, 'w') as f:
+            json.dump(data, f)
+        return data
+
+    # Migrate legacy flat structure into the current schema.
+    if "remaining_units" not in data:
+        data = {
+            "remaining_units": {
+                "aminah": data.get("aminah", INITIAL_UNITS["aminah"]),
+                "dreamers": data.get("dreamers", INITIAL_UNITS["dreamers"]),
+            },
+            "processed_sessions": data.get("processed_sessions", [])
+        }
+        with open(UNITS_FILE, 'w') as f:
+            json.dump(data, f)
+
+    return data
+
+def save_units_data(data):
+    with open(UNITS_FILE, 'w') as f:
+        json.dump(data, f)
+
+def session_already_processed(session_id):
+    data = load_units_data()
+    return session_id in data.get("processed_sessions", [])
+
+def mark_session_processed(session_id):
+    data = load_units_data()
+    processed_sessions = data.setdefault("processed_sessions", [])
+    if session_id not in processed_sessions:
+        processed_sessions.append(session_id)
+        save_units_data(data)
 
 def get_remaining_units(organization="aminah"):
     """Get remaining units for a specific organization"""
-    init_units()
+    data = load_units_data()
+    remaining_units = data.get("remaining_units", {})
+
+    if organization == "both":
+        return min(
+            remaining_units.get("aminah", INITIAL_UNITS["aminah"]),
+            remaining_units.get("dreamers", INITIAL_UNITS["dreamers"])
+        )
+
     try:
-        with open(UNITS_FILE, 'r') as f:
-            data = json.load(f)
-            return data.get(organization, DEFAULT_UNITS)
-    except:
-        return DEFAULT_UNITS
+        return remaining_units.get(organization, INITIAL_UNITS[organization])
+    except Exception:
+        return INITIAL_UNITS.get(organization, 0)
 
 def decrement_units(organization, units_to_decrement):
     """Decrement units for a specific organization"""
-    init_units()
+    data = load_units_data()
     try:
-        with open(UNITS_FILE, 'r') as f:
-            data = json.load(f)
+        remaining_units = data.setdefault("remaining_units", INITIAL_UNITS.copy())
         
         # Handle "both" organization - decrement from both aminah and dreamers
         if organization == "both":
             for org in ["aminah", "dreamers"]:
-                remaining = data.get(org, DEFAULT_UNITS)
+                remaining = remaining_units.get(org, INITIAL_UNITS[org])
                 remaining = max(0, remaining - units_to_decrement)
-                data[org] = remaining
+                remaining_units[org] = remaining
         else:
-            remaining = data.get(organization, DEFAULT_UNITS)
+            remaining = remaining_units.get(organization, INITIAL_UNITS[organization])
             remaining = max(0, remaining - units_to_decrement)
-            data[organization] = remaining
+            remaining_units[organization] = remaining
         
-        with open(UNITS_FILE, 'w') as f:
-            json.dump(data, f)
+        save_units_data(data)
         return data
-    except:
-        return DEFAULT_UNITS
+    except Exception:
+        return data
 
 def to_unit_amount(amount: float, currency: str) -> int:
     a = float(amount)
@@ -241,11 +291,7 @@ def create_checkout_session():
             session_params["customer_email"] = donor_email
 
         session = stripe.checkout.Session.create(**session_params)
-        
-        # Decrement units immediately upon successful session creation (for unit-based pledges)
-        if donation_type == "units" and units:
-            decrement_units(organization, units)
-        
+
         return jsonify({"url": session.url})
     except Exception as e:
         return jsonify({"error": str(e)}), 400
@@ -276,6 +322,7 @@ def webhook():
     if event["type"] == "checkout.session.completed":
         session = event["data"]["object"]
         metadata = session.get("metadata", {})
+        session_id = session.get("id")
         # One-time: session["payment_intent"]
         # Recurring: session["subscription"]
         org_value = metadata.get('organization', 'aminah')
@@ -292,6 +339,13 @@ def webhook():
         dedication_info = ""
         if metadata.get('is_dedicated') == 'True' and metadata.get('dedication_names'):
             dedication_info = f" | Dedicated to: {metadata.get('dedication_names')}"
+
+        if metadata.get('donation_type') == 'units' and session_id and not session_already_processed(session_id):
+            units_value = int(metadata.get('units', '0') or '0')
+            if units_value > 0:
+                decrement_units(org_value, units_value)
+            mark_session_processed(session_id)
+
         logger.info(f"Pledge completed: {metadata.get('donor_name')} for {donation_info} to {org_name} | Frequency: {metadata.get('frequency')} | Duration: {metadata.get('duration')}{zakat_info}{dedication_info} | Session: {session['id']}")
         # TODO: record pledge; send thank-you email; update CRM
     
