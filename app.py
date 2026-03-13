@@ -44,6 +44,7 @@ UNITS_FILE = "/tmp/units_data.json"  # Use /tmp for ephemeral filesystem compati
 DEFAULT_UNITS = 80
 
 ZERO_DECIMAL_CURRENCIES = {"bif","clp","djf","gnf","jpy","kmf","krw","mga","pyg","rwf","ugx","vnd","vuv","xaf","xof","xpf"}
+MAX_START_DATE = datetime(2026, 4, 20, tzinfo=timezone.utc)
 
 # Initialize units file if it doesn't exist
 def init_units():
@@ -180,6 +181,8 @@ def create_checkout_session():
                 today_utc = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
                 if start_dt < today_utc:
                     return jsonify({"error": "Start date cannot be in the past."}), 400
+                if start_dt > MAX_START_DATE:
+                    return jsonify({"error": "Start date cannot be later than 2026-04-20."}), 400
                 if start_dt > today_utc:
                     start_timestamp = int(start_dt.timestamp())
             except ValueError:

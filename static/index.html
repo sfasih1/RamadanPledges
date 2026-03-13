@@ -254,6 +254,7 @@
       const startDateError = document.getElementById('start-date-error');
 
       const UNIT_PRICE = 1000;
+      const MAX_START_DATE = '2026-04-20';
 
       // Fetch and update remaining units display for each organization
       async function loadRemainingUnits() {
@@ -376,6 +377,7 @@
         // Enforce minimum date of today whenever the field is visible
         const today = new Date().toISOString().split('T')[0];
         startDateInput.min = today;
+        startDateInput.max = MAX_START_DATE;
       }
 
       // Update total when inputs change
@@ -474,6 +476,12 @@
           const today = new Date().toISOString().split('T')[0];
           if (startDateValue < today) {
             startDateError.textContent = 'Start date cannot be in the past.';
+            button.disabled = false;
+            button.textContent = 'Proceed to Checkout';
+            return;
+          }
+          if (startDateValue > MAX_START_DATE) {
+            startDateError.textContent = 'Start date cannot be later than April 20, 2026.';
             button.disabled = false;
             button.textContent = 'Proceed to Checkout';
             return;
