@@ -1,4 +1,4 @@
-import os, math, logging, json
+import os, math, logging, json, html
 from datetime import datetime, timezone
 from flask import Flask, request, jsonify, send_from_directory
 from dotenv import load_dotenv
@@ -90,6 +90,14 @@ def load_units_data():
 def save_units_data(data):
     with open(UNITS_FILE, 'w') as f:
         json.dump(data, f)
+
+def store_pledge(pledge_record):
+    """Persist a completed/scheduled pledge record to units_data.json."""
+    data = load_units_data()
+    pledges = data.setdefault("pledges", [])
+    if not any(p.get("session_id") == pledge_record["session_id"] for p in pledges):
+        pledges.append(pledge_record)
+        save_units_data(data)
 
 def session_already_processed(session_id):
     data = load_units_data()
@@ -238,22 +246,14 @@ def create_checkout_session():
             except ValueError:
                 return jsonify({"error": "Invalid start_date format. Use YYYY-MM-DD."}), 400
 
-        scheduled_one_time = frequency == "once" and start_timestamp is not None
-
-        if is_recurring or scheduled_one_time:
-            interval = "week" if frequency == "weekly" else "month"
-            price_data["recurring"] = {
-                "interval": interval
-            }
-
-        if scheduled_one_time:
-            duration = 1
+        scheduled_one_time = False  # one-time payments are always charged immediately
 
         # Build metadata
         metadata = {
             "organization": organization,
             "donation_type": donation_type,
             "donor_name": donor_name,
+            "donor_email": donor_email,
             "frequency": frequency,
             "duration": str(duration),
             "includes_zakat": str(includes_zakat),
@@ -270,17 +270,17 @@ def create_checkout_session():
 
         # Build session parameters
         session_params = {
-            "mode": "subscription" if (is_recurring or scheduled_one_time) else "payment",
+            "mode": "subscription" if is_recurring else "payment",
             "line_items": [{"price_data": price_data, "quantity": 1}],
             "success_url": SUCCESS_URL,
             "cancel_url": CANCEL_URL,
             "metadata": metadata
         }
 
-        # For recurring pledges, also attach metadata to the subscription so
-        # the webhook can read duration and cancel once fully collected.
+        # For recurring pledges, attach metadata to the subscription so the webhook
+        # can read duration and cancel once fully collected.
         # If a future start date was chosen, set trial_end to delay the first charge.
-        if is_recurring or scheduled_one_time:
+        if is_recurring:
             subscription_data = {"metadata": metadata}
             if start_timestamp:
                 subscription_data["trial_end"] = start_timestamp
@@ -347,7 +347,25 @@ def webhook():
             mark_session_processed(session_id)
 
         logger.info(f"Pledge completed: {metadata.get('donor_name')} for {donation_info} to {org_name} | Frequency: {metadata.get('frequency')} | Duration: {metadata.get('duration')}{zakat_info}{dedication_info} | Session: {session['id']}")
-        # TODO: record pledge; send thank-you email; update CRM
+        # Persist pledge locally for admin review
+        pledge_record = {
+            "session_id": session_id,
+            "donor_name": metadata.get("donor_name", "Anonymous"),
+            "donor_email": metadata.get("donor_email", ""),
+            "organization": org_value,
+            "donation_type": metadata.get("donation_type", ""),
+            "units": metadata.get("units", ""),
+            "frequency": metadata.get("frequency", ""),
+            "duration": metadata.get("duration", ""),
+            "includes_zakat": metadata.get("includes_zakat", "False") == "True",
+            "zakat_amount": metadata.get("zakat_amount", "0"),
+            "is_dedicated": metadata.get("is_dedicated", "False") == "True",
+            "dedication_names": metadata.get("dedication_names", ""),
+            "start_date": metadata.get("start_date", ""),
+            "recorded_at": datetime.now(timezone.utc).isoformat(),
+            "scheduled": bool(metadata.get("start_date")),
+        }
+        store_pledge(pledge_record)
     
     elif event["type"] == "invoice.paid":
         invoice = event["data"]["object"]
@@ -393,6 +411,75 @@ def thank_you():
 @app.get("/error")
 def error():
     return send_from_directory("static", "error.html")
+
+@app.get("/admin/pledges")
+def admin_pledges():
+    admin_token = os.getenv("ADMIN_TOKEN")
+    if not admin_token or request.args.get("token", "") != admin_token:
+        return "Unauthorized. Set ADMIN_TOKEN env var and pass ?token=YOUR_TOKEN in the URL.", 401
+
+    data = load_units_data()
+    pledges = data.get("pledges", [])
+    scheduled = [p for p in pledges if p.get("scheduled")]
+    active    = [p for p in pledges if not p.get("scheduled")]
+
+    def esc(s):
+        return html.escape(str(s) if s is not None else "")
+
+    def pledge_row(p):
+        zakat = f"Yes &mdash; ${esc(p.get('zakat_amount', '0'))}" if p.get("includes_zakat") else "No"
+        ded   = f"Yes &mdash; {esc(p.get('dedication_names', ''))}" if p.get("is_dedicated") else "No"
+        return (
+            "<tr>"
+            f"<td>{esc(p.get('recorded_at', '')[:10])}</td>"
+            f"<td>{esc(p.get('donor_name', ''))}</td>"
+            f"<td>{esc(p.get('donor_email', ''))}</td>"
+            f"<td>{esc(p.get('organization', ''))}</td>"
+            f"<td>{esc(p.get('donation_type', ''))}</td>"
+            f"<td>{esc(p.get('units', ''))}</td>"
+            f"<td>{esc(p.get('frequency', ''))} &times; {esc(p.get('duration', ''))}</td>"
+            f"<td>{zakat}</td>"
+            f"<td>{ded}</td>"
+            f"<td>{esc(p.get('start_date', '') or 'Immediate')}</td>"
+            "</tr>"
+        )
+
+    def table_rows(lst):
+        if not lst:
+            return "<tr><td colspan='10' style='text-align:center;color:#999;padding:1rem'>None yet</td></tr>"
+        return "".join(pledge_row(p) for p in reversed(lst))
+
+    headers = (
+        "<tr><th>Date</th><th>Donor</th><th>Email</th><th>Org</th>"
+        "<th>Type</th><th>Units</th><th>Schedule</th>"
+        "<th>Zakat</th><th>Dedicated To</th><th>Start Date</th></tr>"
+    )
+    page = f"""<!doctype html>
+<html><head>
+  <meta charset="utf-8">
+  <title>Pledge Admin \u2014 Ramadan Pledges</title>
+  <style>
+    body{{font-family:system-ui,sans-serif;padding:2rem;background:#f5f5f5;margin:0}}
+    h1{{color:#764ba2}} h2{{color:#444;margin-top:0}}
+    .card{{background:#fff;border-radius:.75rem;padding:1.5rem;margin-bottom:2rem;box-shadow:0 2px 8px rgba(0,0,0,.1)}}
+    table{{border-collapse:collapse;width:100%;font-size:.88rem;overflow-x:auto;display:block}}
+    th,td{{border:1px solid #e0e0e0;padding:.45rem .7rem;text-align:left;white-space:nowrap}}
+    th{{background:#f0f4ff;font-weight:600}} tr:hover{{background:#fafafa}}
+    .badge{{display:inline-block;padding:2px 10px;border-radius:12px;font-size:.8rem;margin-left:.4rem}}
+    .sch{{background:#fff3cd;color:#856404}} .act{{background:#d1e7dd;color:#0f5132}}
+  </style>
+</head><body>
+  <h1>\U0001f319 Ramadan Pledges \u2014 Admin</h1>
+  <div class="card">
+    <h2>\u23f0 Scheduled (Future-Dated) Pledges <span class="badge sch">{len(scheduled)}</span></h2>
+    <table>{headers}{table_rows(scheduled)}</table>
+  </div>
+  <div class="card">
+    <h2>\u2705 Active / Immediate Pledges <span class="badge act">{len(active)}</span></h2>
+    <table>{headers}{table_rows(active)}</table>
+  </div>
+</body></html>"""
+    return page
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 4242))

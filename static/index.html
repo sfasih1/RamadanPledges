@@ -256,6 +256,16 @@
       const UNIT_PRICE = 1000;
       const MAX_START_DATE = '2026-04-20';
 
+      // Returns today's date as YYYY-MM-DD in the user's LOCAL timezone
+      function getLocalDateStr() {
+        const d = new Date();
+        return [
+          d.getFullYear(),
+          String(d.getMonth() + 1).padStart(2, '0'),
+          String(d.getDate()).padStart(2, '0')
+        ].join('-');
+      }
+
       // Fetch and update remaining units display for each organization
       async function loadRemainingUnits() {
         try {
@@ -365,18 +375,15 @@
           }
           durationWrapper.style.display = 'block';
           startDateWrapper.style.display = 'block';
-        } else if (frequency === 'once') {
-          durationWrapper.style.display = 'none';
-          startDateWrapper.style.display = 'block';
         } else {
+          // 'once' or any other — no duration selector, no start date
           durationWrapper.style.display = 'none';
           startDateWrapper.style.display = 'none';
           startDateInput.value = '';
         }
 
-        // Enforce minimum date of today whenever the field is visible
-        const today = new Date().toISOString().split('T')[0];
-        startDateInput.min = today;
+        // Enforce minimum date of today (local time) whenever the field is visible
+        startDateInput.min = getLocalDateStr();
         startDateInput.max = MAX_START_DATE;
       }
 
@@ -473,7 +480,7 @@
         // Validate start date if provided
         const startDateValue = startDateInput.value;
         if (startDateValue) {
-          const today = new Date().toISOString().split('T')[0];
+          const today = getLocalDateStr();
           if (startDateValue < today) {
             startDateError.textContent = 'Start date cannot be in the past.';
             button.disabled = false;
