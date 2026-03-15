@@ -196,6 +196,7 @@
         <div id="start-date-wrapper" style="display: none;">
           <label for="start-date">Start Date <small style="font-weight: normal; color: #888;">(optional — leave blank to start immediately)</small></label>
           <input id="start-date" name="start_date" type="date" />
+          <small id="start-date-once-note" style="display:none; color:#667eea; margin-top:0.25rem; font-style:italic;"></small>
           <span class="error" id="start-date-error"></span>
         </div>
 
@@ -252,6 +253,7 @@
       const startDateWrapper = document.getElementById('start-date-wrapper');
       const startDateInput = document.getElementById('start-date');
       const startDateError = document.getElementById('start-date-error');
+      const startDateOnceNote = document.getElementById('start-date-once-note');
 
       const UNIT_PRICE = 1000;
       const MAX_START_DATE = '2026-04-20';
@@ -365,6 +367,7 @@
           }
           durationWrapper.style.display = 'block';
           startDateWrapper.style.display = 'block';
+          startDateOnceNote.style.display = 'none';
         } else if (frequency === 'monthly') {
           for (let i = 1; i <= 6; i++) {
             const option = document.createElement('option');
@@ -375,11 +378,18 @@
           }
           durationWrapper.style.display = 'block';
           startDateWrapper.style.display = 'block';
+          startDateOnceNote.style.display = 'none';
+        } else if (frequency === 'once') {
+          // No duration selector for one-time; start date is optional
+          durationWrapper.style.display = 'none';
+          startDateWrapper.style.display = 'block';
+          startDateOnceNote.textContent = 'Selecting a future date schedules your full payment to be collected on that date (collected once, then automatically cancelled).';
+          startDateOnceNote.style.display = 'block';
         } else {
-          // 'once' or any other — no duration selector, no start date
           durationWrapper.style.display = 'none';
           startDateWrapper.style.display = 'none';
           startDateInput.value = '';
+          startDateOnceNote.style.display = 'none';
         }
 
         // Enforce minimum date of today (local time) whenever the field is visible

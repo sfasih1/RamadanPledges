@@ -246,7 +246,14 @@ def create_checkout_session():
             except ValueError:
                 return jsonify({"error": "Invalid start_date format. Use YYYY-MM-DD."}), 400
 
-        scheduled_one_time = False  # one-time payments are always charged immediately
+        scheduled_one_time = frequency == "once" and start_timestamp is not None
+        if scheduled_one_time:
+            # Append the charge date to the product name so the donor sees it on Checkout
+            price_data["product_data"]["name"] += f" — One-Time on {start_date_str}"
+            # Stripe requires a recurring interval for subscription mode; "month" is
+            # used as a technical vehicle only — the subscription is cancelled in the
+            # invoice.paid webhook immediately after the single payment is collected.
+            price_data["recurring"] = {"interval": "month"}
 
         # Build metadata
         metadata = {
@@ -270,17 +277,19 @@ def create_checkout_session():
 
         # Build session parameters
         session_params = {
-            "mode": "subscription" if is_recurring else "payment",
+            "mode": "subscription" if (is_recurring or scheduled_one_time) else "payment",
             "line_items": [{"price_data": price_data, "quantity": 1}],
             "success_url": SUCCESS_URL,
             "cancel_url": CANCEL_URL,
             "metadata": metadata
         }
 
-        # For recurring pledges, attach metadata to the subscription so the webhook
-        # can read duration and cancel once fully collected.
-        # If a future start date was chosen, set trial_end to delay the first charge.
-        if is_recurring:
+        # For recurring and scheduled one-time pledges, attach metadata to the
+        # subscription so the webhook can read duration and cancel once fully
+        # collected. For a scheduled one-time pledge, trial_end delays the first
+        # (and only) charge to the chosen start date; the invoice.paid webhook
+        # then cancels the subscription so the donor is never billed again.
+        if is_recurring or scheduled_one_time:
             subscription_data = {"metadata": metadata}
             if start_timestamp:
                 subscription_data["trial_end"] = start_timestamp
