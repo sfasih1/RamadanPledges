@@ -163,8 +163,9 @@
         <label for="donor-name">Your Name</label>
         <input id="donor-name" name="donor_name" type="text" placeholder="Enter your name" />
 
-        <label for="donor-email">Email Address</label>
-        <input id="donor-email" name="donor_email" type="email" placeholder="your@email.com" />
+        <label for="donor-email">Email Address <span style="color:#d32f2f">*</span> <small style="font-weight:normal;color:#888;">(required for receipt)</small></label>
+        <input id="donor-email" name="donor_email" type="email" placeholder="your@email.com" required />
+        <span class="error" id="donor-email-error"></span>
 
         <div class="row">
           <div>
@@ -254,6 +255,8 @@
       const startDateInput = document.getElementById('start-date');
       const startDateError = document.getElementById('start-date-error');
       const startDateOnceNote = document.getElementById('start-date-once-note');
+      const donorEmailInput = document.getElementById('donor-email');
+      const donorEmailError = document.getElementById('donor-email-error');
 
       const UNIT_PRICE = 1000;
       const MAX_START_DATE = '2026-04-20';
@@ -466,6 +469,15 @@
         const isDedicated = isDedicatedSelect.value === 'yes';
         const dedicationNames = isDedicated ? dedicationNamesInput.value : '';
 
+        // Validate email before anything else (field is required for receipts)
+        const donorEmail = donorEmailInput.value.trim();
+        if (!donorEmail) {
+          donorEmailError.textContent = 'An email address is required so we can send your receipt.';
+          donorEmailInput.focus();
+          return;
+        }
+        donorEmailError.textContent = '';
+
         let units = null;
         let customAmount = null;
 
@@ -515,7 +527,7 @@
           duration: duration,
           currency: currencySelect.value,
           donor_name: document.getElementById('donor-name').value || 'Anonymous',
-          donor_email: document.getElementById('donor-email').value,
+          donor_email: donorEmail,
           includes_zakat: includesZakat,
           zakat_amount: zakatAmount,
           is_dedicated: isDedicated,

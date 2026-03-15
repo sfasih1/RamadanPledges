@@ -166,7 +166,9 @@ def create_checkout_session():
         frequency = (data.get("frequency") or "monthly").lower()  # once | weekly | monthly
         duration = int(data.get("duration", 1))  # weeks or months
         donor_name = data.get("donor_name", "Anonymous")
-        donor_email = data.get("donor_email", "")
+        donor_email = (data.get("donor_email") or "").strip()
+        if not donor_email or "@" not in donor_email:
+            return jsonify({"error": "A valid email address is required."}), 400
         includes_zakat = data.get("includes_zakat", False)
         zakat_amount = float(data.get("zakat_amount", 0))
         is_dedicated = data.get("is_dedicated", False)
@@ -295,9 +297,12 @@ def create_checkout_session():
                 subscription_data["trial_end"] = start_timestamp
             session_params["subscription_data"] = subscription_data
 
-        # Add customer email if provided
-        if donor_email:
-            session_params["customer_email"] = donor_email
+        # Always set customer email (required) so Stripe can send receipts/invoices.
+        # For one-time payment mode, also set receipt_email on the PaymentIntent
+        # so Stripe fires a receipt immediately after the charge.
+        session_params["customer_email"] = donor_email
+        if session_params["mode"] == "payment":
+            session_params["payment_intent_data"] = {"receipt_email": donor_email}
 
         session = stripe.checkout.Session.create(**session_params)
 
