@@ -432,8 +432,38 @@ def admin_pledges():
     if not admin_token or request.args.get("token", "") != admin_token:
         return "Unauthorized. Set ADMIN_TOKEN env var and pass ?token=YOUR_TOKEN in the URL.", 401
 
-    data = load_units_data()
-    pledges = data.get("pledges", [])
+    # Pull completed sessions directly from the Stripe API.
+    # This is the authoritative source and survives server restarts and redeploys
+    # on platforms with ephemeral filesystems (e.g. Render free tier).
+    try:
+        result = stripe.checkout.Session.list(status="complete", limit=100)
+        pledges = []
+        for s in result.auto_paging_iter():
+            m = s.get("metadata") or {}
+            pledges.append({
+                "session_id": s.get("id", ""),
+                "recorded_at": datetime.fromtimestamp(
+                    s.get("created", 0), tz=timezone.utc
+                ).isoformat(),
+                "donor_name":      m.get("donor_name", "Anonymous"),
+                "donor_email":     m.get("donor_email", ""),
+                "organization":    m.get("organization", ""),
+                "donation_type":   m.get("donation_type", ""),
+                "units":           m.get("units", ""),
+                "frequency":       m.get("frequency", ""),
+                "duration":        m.get("duration", ""),
+                "includes_zakat":  m.get("includes_zakat", "False") == "True",
+                "zakat_amount":    m.get("zakat_amount", "0"),
+                "is_dedicated":    m.get("is_dedicated", "False") == "True",
+                "dedication_names": m.get("dedication_names", ""),
+                "start_date":      m.get("start_date", ""),
+                "scheduled":       bool(m.get("start_date")),
+            })
+    except Exception as e:
+        return f"Error fetching from Stripe: {html.escape(str(e))}", 500
+
+    # Newest first
+    pledges.sort(key=lambda p: p["recorded_at"], reverse=True)
     scheduled = [p for p in pledges if p.get("scheduled")]
     active    = [p for p in pledges if not p.get("scheduled")]
 
@@ -461,7 +491,7 @@ def admin_pledges():
     def table_rows(lst):
         if not lst:
             return "<tr><td colspan='10' style='text-align:center;color:#999;padding:1rem'>None yet</td></tr>"
-        return "".join(pledge_row(p) for p in reversed(lst))
+        return "".join(pledge_row(p) for p in lst)
 
     headers = (
         "<tr><th>Date</th><th>Donor</th><th>Email</th><th>Org</th>"
