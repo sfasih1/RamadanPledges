@@ -43,8 +43,8 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Unit tracking file
 UNITS_FILE = os.path.join(BASE_DIR, "units_data.json")
 INITIAL_UNITS = {
-    "aminah": 10,
-    "dreamers": 78,
+    "aminah": 0,
+    "dreamers": 55,
 }
 
 ZERO_DECIMAL_CURRENCIES = {"bif","clp","djf","gnf","jpy","kmf","krw","mga","pyg","rwf","ugx","vnd","vuv","xaf","xof","xpf"}
