@@ -457,11 +457,14 @@ def admin_pledges():
         result = stripe.checkout.Session.list(status="complete", limit=100)
         pledges = []
         for s in result.auto_paging_iter():
-            m = s.get("metadata") or {}
+            # SDK v5+ uses attribute access; convert metadata StripeObject to a
+            # plain dict so .get() works regardless of SDK version.
+            raw_meta = getattr(s, "metadata", None) or {}
+            m = dict(raw_meta) if raw_meta else {}
             pledges.append({
-                "session_id": s.get("id", ""),
-                "recorded_at": datetime.fromtimestamp(
-                    s.get("created", 0), tz=timezone.utc
+                "session_id":      getattr(s, "id", ""),
+                "recorded_at":     datetime.fromtimestamp(
+                    getattr(s, "created", 0), tz=timezone.utc
                 ).isoformat(),
                 "donor_name":      m.get("donor_name", "Anonymous"),
                 "donor_email":     m.get("donor_email", ""),
