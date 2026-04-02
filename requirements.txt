@@ -1,4 +1,4 @@
 flask
-stripe
+stripe>=5.0.0,<13.0.0
 python-dotenv
 gunicorn

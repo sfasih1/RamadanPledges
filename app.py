@@ -454,34 +454,56 @@ def admin_pledges():
     # This is the authoritative source and survives server restarts and redeploys
     # on platforms with ephemeral filesystems (e.g. Render free tier).
     try:
-        result = stripe.checkout.Session.list(status="complete", limit=100)
         pledges = []
-        for s in result.auto_paging_iter():
-            # SDK v5+ uses attribute access; convert metadata StripeObject to a
-            # plain dict so .get() works regardless of SDK version.
-            raw_meta = getattr(s, "metadata", None) or {}
-            m = dict(raw_meta) if raw_meta else {}
-            pledges.append({
-                "session_id":      getattr(s, "id", ""),
-                "recorded_at":     datetime.fromtimestamp(
-                    getattr(s, "created", 0), tz=timezone.utc
-                ).isoformat(),
-                "donor_name":      m.get("donor_name", "Anonymous"),
-                "donor_email":     m.get("donor_email", ""),
-                "organization":    m.get("organization", ""),
-                "donation_type":   m.get("donation_type", ""),
-                "units":           m.get("units", ""),
-                "frequency":       m.get("frequency", ""),
-                "duration":        m.get("duration", ""),
-                "includes_zakat":  m.get("includes_zakat", "False") == "True",
-                "zakat_amount":    m.get("zakat_amount", "0"),
-                "is_dedicated":    m.get("is_dedicated", "False") == "True",
-                "dedication_names": m.get("dedication_names", ""),
-                "start_date":      m.get("start_date", ""),
-                "scheduled":       bool(m.get("start_date")),
-            })
+        last_id = None
+        # Manual pagination using starting_after — avoids auto_paging_iter() which
+        # makes additional HTTP calls that can fail with opaque errors on Render.
+        while True:
+            list_params = {"limit": 100}
+            if last_id:
+                list_params["starting_after"] = last_id
+
+            result = stripe.checkout.Session.list(**list_params)
+            sessions = getattr(result, "data", [])
+
+            for s in sessions:
+                # Filter for completed sessions in Python to avoid SDK version
+                # sensitivity around the status query parameter.
+                if getattr(s, "status", "") != "complete":
+                    continue
+                raw_meta = getattr(s, "metadata", None) or {}
+                m = dict(raw_meta) if raw_meta else {}
+                pledges.append({
+                    "session_id":      getattr(s, "id", ""),
+                    "recorded_at":     datetime.fromtimestamp(
+                        getattr(s, "created", 0) or 0, tz=timezone.utc
+                    ).isoformat(),
+                    "donor_name":      m.get("donor_name", "Anonymous"),
+                    "donor_email":     m.get("donor_email", ""),
+                    "organization":    m.get("organization", ""),
+                    "donation_type":   m.get("donation_type", ""),
+                    "units":           m.get("units", ""),
+                    "frequency":       m.get("frequency", ""),
+                    "duration":        m.get("duration", ""),
+                    "includes_zakat":  m.get("includes_zakat", "False") == "True",
+                    "zakat_amount":    m.get("zakat_amount", "0"),
+                    "is_dedicated":    m.get("is_dedicated", "False") == "True",
+                    "dedication_names": m.get("dedication_names", ""),
+                    "start_date":      m.get("start_date", ""),
+                    "scheduled":       bool(m.get("start_date")),
+                })
+
+            has_more = getattr(result, "has_more", False)
+            if not has_more or not sessions:
+                break
+            last_id = getattr(sessions[-1], "id", None)
+            if not last_id:
+                break
+
     except Exception as e:
-        return f"Error fetching from Stripe: {html.escape(str(e))}", 500
+        err_detail = f"{type(e).__name__}: {e}"
+        logger.error(f"Admin fetch error — {err_detail}")
+        return f"Error fetching from Stripe: {html.escape(err_detail)}", 500
 
     # Newest first
     pledges.sort(key=lambda p: p["recorded_at"], reverse=True)
