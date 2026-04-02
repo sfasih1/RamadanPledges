@@ -381,36 +381,54 @@ def webhook():
         }
         store_pledge(pledge_record)
     
-    elif event["type"] == "invoice.paid":
+    elif event["type"] in ("invoice.paid", "invoice.payment_succeeded"):
         invoice = event["data"]["object"]
         subscription_id = invoice.get("subscription")
-        logger.info(f"Recurring payment received: {invoice.get('id')} | Subscription: {subscription_id}")
-        # TODO: record recurring payment
+        amount_paid = invoice.get("amount_paid", 0)
+        logger.info(
+            f"Invoice paid: {invoice.get('id')} | Subscription: {subscription_id} | Amount: {amount_paid}"
+        )
+
+        # Skip $0 trial-start invoices Stripe generates when trial_end is used,
+        # and skip one-time payment invoices that have no subscription.
+        if not subscription_id or amount_paid == 0:
+            return "", 200
 
         # Cancel the subscription once the full pledge has been collected.
-        if subscription_id:
-            try:
-                subscription = stripe.Subscription.retrieve(subscription_id)
-                sub_metadata = subscription.get("metadata", {})
-                duration = int(sub_metadata.get("duration", 0))
-                frequency = sub_metadata.get("frequency", "")
+        try:
+            subscription = stripe.Subscription.retrieve(subscription_id)
+            # Support both attribute-style (SDK v5+) and dict-style access
+            raw_meta = getattr(subscription, "metadata", None) or subscription.get("metadata", {})
+            sub_metadata = dict(raw_meta) if raw_meta else {}
+            duration  = int(sub_metadata.get("duration", 0))
+            frequency = sub_metadata.get("frequency", "")
 
-                if duration > 0 and frequency in ("weekly", "monthly", "once"):
-                    # Count all paid invoices for this subscription (max duration is 26).
-                    # Exclude $0 trial-start invoices that Stripe generates when trial_end is used.
-                    paid_invoices = stripe.Invoice.list(
-                        subscription=subscription_id,
-                        status="paid",
-                        limit=50
-                    )
-                    paid_count = sum(1 for inv in paid_invoices.data if inv.get("amount_paid", 0) > 0)
-                    logger.info(f"Subscription {subscription_id}: {paid_count}/{duration} payment(s) collected")
+            if duration > 0 and frequency in ("weekly", "monthly", "once"):
+                # Page through all invoices — auto_paging_iter handles >100 results correctly.
+                paid_count = sum(
+                    1
+                    for inv in stripe.Invoice.list(subscription=subscription_id, limit=100).auto_paging_iter()
+                    if inv.get("status") == "paid" and inv.get("amount_paid", 0) > 0
+                )
+                logger.info(
+                    f"Subscription {subscription_id}: {paid_count}/{duration} payment(s) collected"
+                )
 
-                    if paid_count >= duration:
+                if paid_count >= duration:
+                    sub_status = getattr(subscription, "status", None) or subscription.get("status", "")
+                    if sub_status not in ("canceled", "cancelled"):
                         stripe.Subscription.cancel(subscription_id)
-                        logger.info(f"Subscription {subscription_id} cancelled — full pledge of {duration} payment(s) collected")
-            except Exception as e:
-                logger.error(f"Error checking/cancelling subscription {subscription_id}: {e}")
+                        logger.info(
+                            f"Subscription {subscription_id} cancelled — "
+                            f"full pledge of {duration} payment(s) collected"
+                        )
+                    else:
+                        logger.info(f"Subscription {subscription_id} was already cancelled — skipping")
+        except stripe.error.InvalidRequestError as e:
+            # Subscription not found or already in a terminal state — not a real error
+            logger.warning(f"Subscription {subscription_id} could not be processed (may be already cancelled): {e}")
+        except Exception as e:
+            logger.error(f"Error checking/cancelling subscription {subscription_id}: {e}")
 
     return "", 200
 
